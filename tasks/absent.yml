@@ -1,0 +1,60 @@
+- name: delete template if we absent the stack and facts
+  delegate_to: localhost
+  file:
+    path: "{{ item }}"
+    state: absent
+  with_items:
+    - "{{ nova_server_template }}"
+    - "/var/tmp/facts_cache/{{ inventory_hostname_short }}"
+  ignore_errors: true
+
+- name: grab private_ip
+  shell: "heat output-show {{ nova_server_stack_name }} private_ip "
+  environment:
+    PATH: "{{ shelltools_path }}"
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: private_ip
+
+- name: grab servnet_ip
+  shell: "heat output-show {{ nova_server_stack_name }} servnet_ip "
+  environment:
+    PATH: "{{ shelltools_path }}"
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: servnet_ip
+
+- name: grab public_ip
+  shell: "heat output-show {{ nova_server_stack_name }} public_ip "
+  environment:
+    PATH: "{{ shelltools_path }}"
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: public_ip
+
+- debug:
+    msg: "{{ public_ip.stdout }} {{ servnet_ip.stdout }} {{ private_ip.stdout }}"
+
+- name: destroy os_stack
+  os_stack:
+    auth:
+      tenant_id: "{{ nova_server_tenant_id }}"
+      username: "{{ nova_server_username }}"
+      password: "{{ nova_server_password }}"
+      auth_url: "{{ nova_server_auth_url }}"
+    name: "{{ nova_server_stack_name }}"
+    state: "{{ nova_server_state }}"
+    template: "{{ nova_server_template }}"
+    parameters: "{{ nova_server_parameters }}"
+  loop_control:
+    label: "{{ nova_server_template }}"
+

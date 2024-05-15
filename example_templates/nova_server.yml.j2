@@ -1,0 +1,200 @@
+#jinja2: lstrip_blocks: "True"
+heat_template_version: 2016-10-14
+
+# see https://developer.rackspace.com/docs/cloud-orchestration/v1/resources-reference/openstack/
+
+description: |
+  {{ nova_server_stack_name }}
+
+resources:
+
+  heat_server_files:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        write_files:
+        - encoding: b64
+          path: /opt/init.sh
+          content: {{ lookup('file', '{{ inventory_dir }}/{{ provision_script | default(".files/provision/provision.sh") }}') | b64encode }}
+
+  heat_server_software:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        package_update: true
+        package_upgrade: true
+        packages:
+          - xe-guest-utilities
+          - python3-nova-agent
+
+  heat_server_init:
+    type: OS::Heat::CloudConfig
+    properties:
+      cloud_config:
+        runcmd:
+        - sh /opt/init.sh
+
+  heat_server_init_config:
+    type: OS::Heat::MultipartMime
+    properties:
+      parts:
+      - config: {get_resource: heat_server_files}
+      - config: {get_resource: heat_server_software}
+      - config: {get_resource: heat_server_init}
+
+
+{% if nova_server_system_volume is defined %}
+  heat_system_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: {{ nova_server_system_volume_size }}
+      volume_type: "{{ nova_server_system_volume_type | default('SATA') }}"
+      snapshot_id: {{ nova_server_system_snapshot_id }}
+{% endif %}
+
+
+  heat_server:
+    type: OS::Nova::Server
+    properties:
+      name:     {{ nova_server_name }}
+      flavor:   {{ nova_server_flavor }}
+      {% if nova_server_image is defined and nova_server_system_snapshot_id is not defined %}
+      image:    {{ nova_server_image }}
+      {% endif %}
+      key_name: orcprov
+      user_data: {get_resource: heat_server_init_config}
+      user_data_format: RAW
+      user_data_update_policy: IGNORE
+      metadata:
+        rax-heat: {get_param: "OS::stack_id"}
+
+{% if nova_server_system_volume is defined %}
+      block_device_mapping_v2:
+        - device_name: xvda
+          delete_on_termination: true
+          volume_id: {get_resource: heat_system_volume}
+          volume_size: {{ nova_server_system_volume_size }}
+{% endif %}
+
+
+      networks:
+        - uuid: 00000000-0000-0000-0000-000000000000
+        - uuid: 11111111-1111-1111-1111-111111111111
+      {% if nova_server_fixed_ip is not defined %}
+        - uuid: 234234234-234234234-234234234-234234234
+      {% else %}
+        - port: { get_resource: private_port }
+
+  private_port:
+    type: OS::Neutron::Port
+    properties:
+      # rack networks subnet list
+      network: 234234234-234234234-234234234-234234234
+      fixed_ips:
+        - ip_address: {{ nova_server_fixed_ip }}
+          subnet: 234234234-234234234-234234234-234234234
+      {% endif %}
+
+{% if nova_server_security_group_web is defined %}
+  security_group_attachment_web:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, public, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+{% endif %}
+
+{% if nova_server_security_group_vpn is defined %}
+  security_group_attachment_wireguard:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, public, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+{% endif %}
+
+  security_group_attachment_mgmt_allports_public:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, public, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+
+
+
+{% if nova_server_security_group_pingdom is defined %}
+  security_group_attachment_pingdom_eu_a_public:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, public, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+
+  security_group_attachment_pingdom_eu_b_public:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, public, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+{% endif %}
+
+{% if nova_server_security_group_servnet_open is defined %}
+  security_group_attachment_servnet:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, private, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+{% else %}
+  security_group_attachment_servnet:
+    type: Rackspace::Neutron::SecurityGroupAttachment
+    properties:
+      port: { get_attr: [heat_server, addresses, private, 0, port] }
+      security_group: 234234234-234234234-234234234-234234234
+{% endif %}
+
+{% if nova_server_data_volume is defined %}
+{% for key, volume in nova_server_data_volume.items() %}
+  {{ key }}_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: {{ volume.size }}
+      volume_type: "{{ volume.type | default('SATA') }}"
+
+  {{ key }}_attach:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      instance_uuid: { get_resource: heat_server }
+      volume_id: { get_resource: {{ key }}_volume }
+      mountpoint: {{ volume.mountpoint | default('/dev/xvdb') }}
+
+{% endfor %}
+{% endif %}
+
+{% if nova_server_backup_volume is defined %}
+{% for key, volume in nova_server_backup_volume.items() %}
+  {{ key }}_volume:
+    type: OS::Cinder::Volume
+    properties:
+      size: {{ volume.size | default(75) }}
+      volume_type: "{{ volume.type | default('SATA') }}"
+
+  {{ key }}_attach:
+    type: OS::Cinder::VolumeAttachment
+    properties:
+      instance_uuid: { get_resource: heat_server }
+      volume_id: { get_resource: {{ key }}_volume }
+      mountpoint: {{ volume.mountpoint | default('/dev/xvde') }}
+
+{% endfor %}
+{% endif %}
+
+
+outputs:
+  public_ip:
+    description: "Public IP assigned"
+    value:
+      get_attr: [heat_server, accessIPv4]
+  servnet_ip:
+    description: "Private IP assigned"
+    value:
+      get_attr: [heat_server, networks, private, 0]
+  private_ip:
+    description: "DFWPrivateNet assigned"
+    value:
+      get_attr: [heat_server, networks, DFWPrivateNet, 0]
+

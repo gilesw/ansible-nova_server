@@ -1,0 +1,120 @@
+
+- name: test for already built output template ( we cant rely on checks to stop machines getting rebuilt )
+  stat:
+    path: "{{ nova_server_template }}"
+  register: nova_server_template_dest
+
+- name: template our os_stack heat file
+  template:
+    src: "{{ inventory_dir }}/.files/nova_server/{{ nova_server_source_template }}"
+    dest: "{{ nova_server_template }}"
+  register: nova_server_template_result
+
+- name: "list current stacks and search for {{ nova_server_stack_name }}"
+  shell: "heat stack-list | grep -q {{ nova_server_stack_name }}"
+  ignore_errors: true
+  environment:
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  register: stack_exists
+  changed_when: false
+  when: nova_server_template_result.changed and not nova_server_template_dest.stat.exists
+
+#- debug: msg="{{ stack_exists }}"
+
+- name: "dry run an update stack to see if anything needs to change be updated"
+  shell: "heat stack-update {{ nova_server_stack_name }} --template-file {{ nova_server_template }} --dry-run > {{ nova_server_state_file }}"
+  environment:
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: ( stack_exists.rc is defined and stack_exists.rc == 0 ) and nova_server_template_result.changed and not nova_server_template_dest.stat.exists
+  ignore_errors: true
+
+- name: "check for updated resources"
+  shell: "cat {{ nova_server_state_file }} | grep updated "
+  when: ( stack_exists.rc is defined and stack_exists.rc == 0 ) and nova_server_template_result.changed and not nova_server_template_dest.stat.exists
+  register: stack_updated
+  ignore_errors: true
+
+- name: "check for replaced resources"
+  shell: "cat {{ nova_server_state_file }} | grep -vE '(OS::Heat|Rackspace::Neutron)' | grep replaced "
+  when: ( stack_exists.rc is defined and stack_exists.rc == 0 ) and nova_server_template_result.changed and not nova_server_template_dest.stat.exists
+  register: stack_replaced
+  ignore_errors: true
+
+- name: "require input when things are replaced"
+  pause:
+    prompt: "things are going to be replaced! {{ stack_replaced.stdout }}"
+  when: ( stack_exists.rc is defined and stack_exists.rc == 0 ) and nova_server_template_result.changed and ( stack_replaced.rc is defined and stack_replaced.rc == 0 ) and not nova_server_template_dest.stat.exists
+  ignore_errors: true
+
+- name: build os_stack
+  os_stack:
+    auth:
+      tenant_id: "{{ nova_server_tenant_id }}"
+      username: "{{ nova_server_username }}"
+      password: "{{ nova_server_password }}"
+      auth_url: "{{ nova_server_auth_url }}"
+    name: "{{ nova_server_stack_name }}"
+    state: "{{ nova_server_state }}"
+    template: "{{ nova_server_template }}"
+    parameters: "{{ nova_server_parameters }}"
+  loop_control:
+    label: "{{ nova_server_template }}"
+  when: nova_server_template_result.changed and not nova_server_template_dest.stat.exists
+  register: nova_server_loop_result
+
+- name: grab private_ip
+  shell: "heat output-show {{ nova_server_stack_name }} private_ip "
+  environment:
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: private_ip
+  check_mode: no
+
+- name: grab servnet_ip
+  shell: "heat output-show {{ nova_server_stack_name }} servnet_ip "
+  environment:
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: servnet_ip
+  check_mode: no
+
+- name: grab public_ip
+  shell: "heat output-show {{ nova_server_stack_name }} public_ip "
+  environment:
+    OS_USERNAME: "{{ nova_server_username }}"
+    OS_PASSWORD: "{{ nova_server_password }}"
+    OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+    OS_AUTH_URL: "{{ nova_server_auth_url }}"
+  when: nova_server_flavor is defined
+  register: public_ip
+  check_mode: no
+
+- debug:
+    msg: "{{ public_ip.stdout }} {{ servnet_ip.stdout }} {{ private_ip.stdout }}"
+  when: nova_server_flavor is defined
+
+- name: write out a file with out ip address details in it mapping to interfaces
+  template:
+    src: ip_facts.yml.j2
+    dest: "{{ nova_server_template_ip_facts }}"
+    mode: '0644'
+  become: no
+
+- name: waiting for /opt/init.sh to run (slow on baremetal for some reason)
+  pause:
+    seconds: 360
+  when: nova_server_flavor is defined
+
+

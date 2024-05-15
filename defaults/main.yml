@@ -1,0 +1,25 @@
+nova_server_state: "{{ state | default('present') }}"
+nova_server_tenant_id: "{{ os_stack_tenant_id | default('wibble') }}"
+nova_server_username: "{{ os_stack_username | default('wibble') }}"
+nova_server_password: "{{ os_stack_password | default('wibble') }}"
+nova_server_auth_url: "https://identity.api.rackspacecloud.com/v2.0/"
+nova_server_name: "{{ inventory_hostname }}"
+nova_server_stack_name: "{{ inventory_hostname }}"
+
+nova_server_parameters: "{{ omit }}"
+nova_server_template: "{{ inventory_dir }}/.files/nova_server/built/{{ nova_server_stack_name }}.yml"
+nova_server_template_ip_facts: "{{ inventory_dir }}/.files/nova_server/built/{{ nova_server_stack_name }}_ip_facts.yml"
+nova_server_source_template: nova_server.yml.j2
+nova_server_state_file: "{{ inventory_dir }}/.files/nova_server/state/{{ nova_server_stack_name }}.yml"
+
+
+nova_server_flavor: 512MB Standard Instance
+nova_server_image: "<find me from rack servers image list>"
+
+private_ip:
+  stdout: 127.0.0.1
+public_ip:
+  stdout: 127.0.0.1
+servnet_ip:
+  stdout: 127.0.0.1
+

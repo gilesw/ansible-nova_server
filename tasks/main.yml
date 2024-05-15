@@ -1,0 +1,17 @@
+- include: create.yml
+  when: nova_server_state == 'present'
+
+# - include: start.yml
+#   when: nova_server_state == 'started' or nova_server_state == 'start'
+#
+# - include: reboot.yml
+#   when: nova_server_state == 'rebooted' or nova_server_state == 'reboot'
+#
+# - include: stop.yml
+#   when: nova_server_state == 'stopped' or nova_server_state == 'stop'
+#
+- include: absent.yml
+  when: nova_server_state == 'absent'
+
+
+

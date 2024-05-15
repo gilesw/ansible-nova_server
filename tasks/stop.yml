@@ -1,0 +1,13 @@
+# API call failed, unable to connect
+
+# - name: "stop a nova server {{ inventory_hostname }}"
+#   shell: "nova stop {{ inventory_hostname }}"
+#   ignore_errors: true
+#   environment:
+#     PATH: "{{ shelltools_path }}"
+#     OS_USERNAME: "{{ nova_server_username }}"
+#     OS_PASSWORD: "{{ nova_server_password }}"
+#     OS_TENANT_ID: "{{ nova_server_tenant_id }}"
+#     OS_AUTH_URL: "{{ nova_server_auth_url }}"
+#   changed_when: false
+
